@@ -16,6 +16,10 @@ ui <- fluidPage(
     sidebarPanel(width = 3,
       fileInput("leftFile", "Upload File with Client/Case List (must have an SID column)", accept=c("csv","xls","xlsx")),
       fileInput("righttFile", "Upload CYZAP File to Extract Data from (must have an SID column)", accept=c("csv","xls","xlsx")),
+      HTML("<em>Note: There is a 30MB file size upload limit</em>
+           <br>
+           <br>
+           <br>"),
       downloadButton("download", "Download Output File")
     ),
     
@@ -46,7 +50,7 @@ server <- function(input, output) {
       need(ext_right %in% c("csv","xls","xlsx"), "Invalid right file; Please upload a csv, xls, or xlsx file")
     )
     
-    #check csv vs xls/xlsx, import conditional on extension
+    #check csv vs xls/xlsx, import conditioned on extension
     leftFile_tmp <- input$leftFile
     if(ext_left == "csv"){
       leftFile <- read.csv(leftFile_tmp$datapath)
@@ -75,9 +79,8 @@ server <- function(input, output) {
     left_SID_index <- match("SID", toupper(colnames(leftFile)))
     right_SID_index <- match("SID", toupper(colnames(rightFile)))
     
-    #custom rename SID column so that it is in all CAPS (e.g., changes  "sid" and "Sid" to "SID)
+    #custom rename SID column so that it is in all CAPS (e.g., changes  "sid" and "Sid" to "SID")
     colnames(leftFile)[left_SID_index] <- "SID"
-    # colnames(leftFile[left_SID_index])<-"SID"
     colnames(rightFile)[right_SID_index] <- "SID"
     
     #left join data
