@@ -3,6 +3,9 @@ library(shiny)
 library(readxl)
 library(dplyr)
 
+#default file size upload limit is 5MB; change to 30MB
+options(shiny.maxRequestSize=30*1024^2) 
+
 # Define UI for application
 ui <- fluidPage(
   
@@ -17,11 +20,10 @@ ui <- fluidPage(
     ),
     
     mainPanel(width = 9,
-              h3("First five rows..."),
+              h3("Preview of the first five rows..."),
       tableOutput("tableSample")
     )
   )#sidebarLayout
-  
 )
 
 # Define server logic
@@ -32,8 +34,7 @@ server <- function(input, output) {
 
     validate(
       need(input$leftFile != "", "No left data has been uploaded"),
-      need(input$righttFile != "", "No right data has been uploaded"),
-      
+      need(input$righttFile != "", "No right data has been uploaded")
     )
     
     #check for valid extensions
@@ -42,11 +43,10 @@ server <- function(input, output) {
     
     validate(
       need(ext_left %in% c("csv","xls","xlsx"), "Invalid left file; Please upload a csv, xls, or xlsx file"),
-      need(ext_right %in% c("csv","xls","xlsx"), "Invalid right file; Please upload a csv, xls, or xlsx file"),
-      
+      need(ext_right %in% c("csv","xls","xlsx"), "Invalid right file; Please upload a csv, xls, or xlsx file")
     )
     
-    #import data, check csv vs xls/xlsx
+    #check csv vs xls/xlsx, import conditional on extension
     leftFile_tmp <- input$leftFile
     if(ext_left == "csv"){
       leftFile <- read.csv(leftFile_tmp$datapath)
@@ -60,8 +60,6 @@ server <- function(input, output) {
     }else if(ext_right %in% c("xls","xlsx")){
       rightFile <- read_excel(rightFile_tmp$datapath, col_names = T)
     }
-    # leftFile <- leftfile()
-    # rightFile <- rightFile()
     
     # browser()
     
@@ -73,10 +71,19 @@ server <- function(input, output) {
       need("SID" %in% rightFile_colnames, "Invalid right file; No column named SID.")
     )
     
+    #find index of column with SID; since we don't know case, make everything uppercase
+    left_SID_index <- match("SID", toupper(colnames(leftFile)))
+    right_SID_index <- match("SID", toupper(colnames(rightFile)))
+    
+    #custom rename SID column so that it is in all CAPS (e.g., changes  "sid" and "Sid" to "SID)
+    colnames(leftFile)[left_SID_index] <- "SID"
+    # colnames(leftFile[left_SID_index])<-"SID"
+    colnames(rightFile)[right_SID_index] <- "SID"
+    
     #left join data
     df_merged <- leftFile %>% 
       left_join(rightFile, by ="SID")
-
+    
   })
   
   output$tableSample <- renderTable({
@@ -91,8 +98,8 @@ server <- function(input, output) {
     content = function(file) {
       write.csv(df_merged(), file)
     }
+    
   )
-
 }
 
 # Run the application 
