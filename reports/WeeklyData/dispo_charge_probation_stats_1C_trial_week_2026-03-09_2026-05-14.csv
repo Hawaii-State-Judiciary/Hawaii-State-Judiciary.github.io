@@ -1,0 +1,13 @@
+"Judge","Division","Revocations","Dismissals","FirstRevocation","SecondRevocation","MoreThanTwo","Total"
+"Wong","1",0,0,0,0,0,0
+"Remigio","2",1,0,1,0,0,1
+"Costa","6",1,0,1,0,0,1
+"Souza","11",2,0,1,0,1,2
+"Viola","13",0,0,0,0,0,0
+"Malinao","15",1,0,0,0,1,1
+"Johnson","17",0,0,0,0,0,0
+"To'oto'o","19",0,0,0,0,0,0
+"Morikawa","20",0,0,0,0,0,0
+"Kawashima","21",0,0,0,0,0,0
+"Somerville","23",3,0,3,0,0,3
+"Total","-",8,0,6,0,2,8

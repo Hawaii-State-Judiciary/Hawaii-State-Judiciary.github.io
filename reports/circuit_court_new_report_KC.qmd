@@ -1,0 +1,2185 @@
+---
+title: "First Circuit Criminal Division Reports"
+date-modified: last-modified
+editor: visual
+server: shiny
+
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    toc-expand: 1
+    toc-location: left
+    grid:
+      sidebar-width: 200px
+      body-width: 1500px
+      margin-width: 50px
+      gutter-width: 1.5rem
+    max-width: 1600px
+    theme:
+      light: default
+---
+
+```{r}
+#| warning: false
+#| echo: false
+#| context: data
+
+library(lubridate)
+library(stringr)
+
+#Note to Adam: toggle this variable for Charge vs Case, it works in the markdown headings.
+title <- "Charge"
+
+#set constants
+pending_RDS <- "2026-04-14" #date R script was run, not date Crystal Report was run
+
+#to set x-axis range on plots
+monthSelector <- '05'
+yearSelector <- '2026'
+
+#set the date in the title, might not be necessary if header has modified date
+csv_dispo_list <- list.files("WeeklyData/", pattern = "^dispo_.*csv$")
+run_dates_dispo <- str_extract(csv_dispo_list, "[0-9]{4}-[0-9]{2}-[0-9]{2}")
+run_dates_dispo <- run_dates_dispo[!is.na(run_dates_dispo)]
+title_date <- as.Date(max(run_dates_dispo))
+
+#No need to touch these until 2025/01/01 -> at that time, reconfigure x-axis values for rangeslider and rangeselector to match FTA dash
+#set plot range and data cutoffs----
+cutoffDate <- paste0(yearSelector,'-',monthSelector,'-02')
+#plots started to get crowded as new data accumulated, so control the initial range and let user pan/slide the x-axis to see older data
+plotStartRange <- as.Date(cutoffDate)-lubridate::years(1) #for plots, look back one year from current month
+# plotStartRange <- as.Date('2022-01-01') #for plots, look back to YTD
+plotEndRange <- as.Date(cutoffDate) %m+% months(1) #for plots, look ahead one month so data isn't right up against edge of plot; #adding one month -> h/t: https://stackoverflow.com/questions/14169620/add-a-month-to-a-date
+```
+
+# `r title` Dispositions as of Trial Week (`r title_date`)
+
+## Weekly `r title` Disposition Table
+
+The table below shows the number of dispositions by disposition type across each criminal division in the First Circuit, Circuit Court. Use the drop down to look at historical weekly reports.
+
+-   **Deferrals encompass DAG, DNC, and CDS dispositions. All deferrals counted here are pending.**
+-   **Dismissals encompass DSM, DPJ, and DWO dispositions.**
+-   **The Disposed column refers to the number of `r title`s disposed that week.**
+-   **The Awaiting column refers to the number of `r title`s that either are awaiting a disposition or need to be addressed.**
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+library(dplyr)
+library(stringr)
+library(shiny)
+library(htmltools)
+library(DT)
+library(dplyr)
+library(kableExtra)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_stats_1C_trial_week_ to dispo_case_stats_1C_trial_week_)
+csv_dispo_list <- list.files("WeeklyData/", pattern = "^dispo_charge_stats_1C_trial_week_.*csv$")
+run_dates_dispo <- str_extract(csv_dispo_list, "[0-9]{4}-[0-9]{2}-[0-9]{2}")
+run_dates_aggregate <- str_extract(csv_dispo_list, "Aggregate")
+run_dates_dispo <- append(run_dates_dispo,run_dates_aggregate)
+run_dates_dispo <- run_dates_dispo[!is.na(run_dates_dispo)]
+
+# pending_trial_list <- lapply(paste0("../pending_trials/", csv_list), read.csv)
+
+selectizeInput(inputId = "selectWeekDispo_Case",
+               label = "Select a report:",
+               choices = rev(run_dates_dispo), 
+               selected = TRUE
+               )
+
+#removes shiny error messages
+tags$style(type="text/css",
+  ".shiny-output-error { visibility: hidden; }",
+  ".shiny-output-error:before { visibility: hidden; }"
+) 
+
+tags$div(class = "callout callout-style-default callout-warning callout-titled",
+  tags$div(class = "callout-header",
+    tags$div(class = "callout-icon-container",
+      tags$i(class = "callout-icon")
+    ),
+    tags$div(class = "callout-title-container flex-fill", "Warning")
+  ),
+  tags$div(class = "callout-body-container callout-body",
+    tags$p("When comparing dispositions reports, proceed with caution. The meaning of the category labels across the columns has changed over time with the rollout of data entry guidelines. The implementation of the new disposition categories happened on January 1st, 2026.")
+  )
+)
+
+tableOutput("charge_dispo_table2")
+
+#attempt to add download button using just shiny widgets to save table displayed with Kable
+# downloadButton(outputId = "saveCSV", label = "CSV")
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+library(dplyr)
+library(kableExtra)
+library(DT)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_stats_1C_trial_week_ to dispo_case_stats_1C_trial_week_)
+charge_dispo_table <- reactive({
+    csv_selected <- list.files("WeeklyData/", pattern = paste0("^dispo_charge_stats_1C_trial_week_", input$selectWeekDispo_Case,".*?csv$"))
+  dispo_charge_table_full <- read.csv(file = paste0("WeeklyData/", csv_selected))
+})
+
+  output$charge_dispo_table2 <- function(){
+      charge_dispo_table() %>% rename(
+        `Disposed(%)` = Disposed...,
+        `Awaiting(%)` = Awaiting...) %>% 
+    kable() %>% 
+      kable_styling("striped","hover", font_size = 14) %>% 
+      row_spec(12, bold = T) %>% 
+    column_spec(16, bold = T, background = "lightgreen") %>% 
+    column_spec(17, bold = T, background = "red") %>% 
+    column_spec(18, bold = T)
+    }
+
+# render DT if they want the functionality of saving to csv, excel, copying
+  
+#  output$charge_dispo_table <- renderDT(
+#  charge_dispo_trial_table(), 
+#  rownames = F,
+#  colnames = c("Judge\n","Division","COP","ACQJ","ACQB","GLTJ","GLTW", "Deferrals","Dismissals","DPJ48","DWO48","NPQ", "RMD", "AQRI", "MISC", "Disposed","Awaiting", "Total", "Disposed(%)", "Awaiting(%)"),
+#    extensions = c("Buttons", "FixedColumns", "FixedHeader"),
+#    options = list(
+#      pageLength = 15,
+      # lengthMenu = c(15, 25, 50),
+      # scrollY = "600px", #this was creating some weird behavior in which the column heads of previous table were partially appearing
+#      scrollX = TRUE,
+      #add buttons, and specifying dom
+      #https://stackoverflow.com/questions/50039186/add-download-buttons-in-dtrenderdatatable
+      #https://stackoverflow.com/questions/50043152/r-shiny-how-to-add-pagination-in-dtrenderdatatable
+      # dom = 'Bfrtip',
+#      dom = 'tB',
+#      buttons = c('copy','csv','excel','pdf'),
+#      fixedColumns = list(leftColumns = 1), # Freeze first column
+#      fixedHeader = list(header = T, footer = T) #not sure this works
+      # h/t: customize font size of column heads: https://github.com/rstudio/DT/issues/783
+      # headerCallback = DT::JS(
+      #   "function(thead) {",
+      #   "  $(thead).css('font-size', '14px');",
+      #   "}"
+      #   )
+  
+```
+
+## `r title` Dispositions Over Time By Division
+
+-   **Select a time period to view total charge dispositions aggregated by week, month, quarter, or year.**
+-   **Double click on a division/judge in the legend on the righthand side to display only their data.**
+-   **Double click again to display all divisions.**
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(plotly)
+library(shiny)
+
+# Create selectInput for time period
+selectInput(inputId = "timePeriod",
+            label = "Select time period:",
+            choices = c("Week" = "week", "Month" = "month", "Quarter" = "quarter", "Year" = "year"),
+            selected = "month")
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_stats_1C_trial_week_ to dispo_case_stats_1C_trial_week_)
+csv_dispo_list <- list.files("WeeklyData/", pattern = "^dispo_charge_stats_1C_trial_week_.*csv$")
+csv_dispo_list <- csv_dispo_list[-length(csv_dispo_list)]
+
+charge_dispo_list <- lapply(paste0("WeeklyData/", csv_dispo_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+case_dispo_df <- bind_rows(setNames(charge_dispo_list, basename(csv_dispo_list)), .id = "id") #bind_rows(charge_dispo_list)
+
+case_dispo_df2 <- case_dispo_df %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21", "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions")),
+         JRT = ACQJ + GLTJ,
+         JWT = GLTW + ACQJ + AQRI,
+         trials = JRT + JWT) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(cumulative_dispo = cumsum(Total),
+         cumulative_trials = cumsum(trials),
+         cumulative_disposed = cumsum(Disposed),
+         cumulative_awaiting = cumsum(Awaiting),
+         cumulative_JRT = cumsum(JRT),
+         cumulative_JWT = cumsum(JWT)) %>% 
+  ungroup()
+
+choicesCaseDispoSelect <- case_dispo_df2 %>% 
+  select(Division) %>% 
+  distinct() %>% 
+  filter(Division != "All Divisions") %>% 
+  arrange(Division) %>% 
+  pull()
+
+plotlyOutput("gg_dispos", height = 600)
+
+# plotlyOutput("gg_dispo_divs_yearly", height = 600)
+# plotlyOutput("gg_trial_divs_yearly", height = 600)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(lubridate)
+library(gghighlight)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_stats_1C_trial_week_ to dispo_case_stats_1C_trial_week_)
+csv_dispo_list <- list.files("WeeklyData/", pattern = "^dispo_charge_stats_1C_trial_week_.*csv$")
+csv_dispo_list <- csv_dispo_list[-length(csv_dispo_list)]
+
+case_dispo_list <- lapply(paste0("WeeklyData/", csv_dispo_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+case_dispo_df <- bind_rows(setNames(case_dispo_list, basename(csv_dispo_list)), .id = "id") #bind_rows(case_dispo_list)
+
+case_dispo_df1 <- case_dispo_df %>% 
+    mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")), 
+           cyear = format(trial_week, "%Y"),
+           Division = if_else(Division == "-", "All Divisions", Division),
+           Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21", "23", "All Divisions"), labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions"))
+           )
+
+aggregated_charge_data <- reactive({
+
+  if(input$timePeriod == "week") {
+    case_dispo_df1 %>%
+      mutate(period = floor_date(trial_week, "week")) %>%
+      group_by(period, Division) %>%
+      summarize(total_dispositions = sum(Disposed), .groups = "drop") %>% 
+      filter(Division != "All Divisions") # remove All Divisions, otherwise individual Division data is too compressed in plot
+  } else if(input$timePeriod == "month") {
+    case_dispo_df1 %>%
+      mutate(period = floor_date(trial_week, "month")) %>%
+      group_by(period, Division) %>%
+      summarize(total_dispositions = sum(Disposed), .groups = "drop") %>% 
+      filter(Division != "All Divisions") # remove All Divisions, otherwise individual Division data is too compressed in plot
+  } else if(input$timePeriod == "quarter") {
+    case_dispo_df1 %>%
+      mutate(period = floor_date(trial_week, "quarter")) %>%
+      group_by(period, Division) %>%
+      summarize(total_dispositions = sum(Disposed), .groups = "drop") %>% 
+      filter(Division != "All Divisions")
+  } else if(input$timePeriod == "year") {
+    case_dispo_df1 %>%
+      mutate(period = floor_date(trial_week, "year")) %>%
+      group_by(period, Division) %>%
+      summarize(total_dispositions = sum(Disposed), .groups = "drop") %>% 
+      filter(Division != "All Divisions") # remove All Divisions, otherwise individual Division data is too compressed in plot
+    
+  }
+})
+
+output$gg_dispos <- renderPlotly({
+  case_dispo_divs <- aggregated_charge_data()
+  
+  if(input$timePeriod == "year") {
+    case_dispo_divs <- case_dispo_divs %>%
+      mutate(period_text = format(period, "%Y"))
+  } else if(input$timePeriod == "quarter") {
+    case_dispo_divs <- case_dispo_divs %>%
+      mutate(period_text = paste0("Q", lubridate::quarter(period), " ", lubridate::year(period)))
+  } else {
+    case_dispo_divs <- case_dispo_divs %>%
+      mutate(period_text = format(period, "%Y-%m-%d"))
+  }
+    
+  # Set date range for rangeslider
+  date_range_start <- min(case_dispo_divs$period)
+  date_range_end <- max(case_dispo_divs$period)
+  
+# Set default plot start range based on time period
+if(input$timePeriod == "week") {
+  plot_start_range <- date_range_end - months(3) - days(7)  # Add 1 week padding
+  plot_end_range <- date_range_end + days(7)  # Add 1 week padding
+} else if(input$timePeriod == "month") {
+  plot_start_range <- date_range_end - months(6) - days(15)  # Add ~2 weeks padding
+  plot_end_range <- date_range_end + days(15)  # Add ~2 weeks padding
+} else if(input$timePeriod == "quarter") {
+  plot_start_range <- date_range_end - lubridate::years(2) - days(15)  # Add ~2 weeks padding
+  plot_end_range <- date_range_end + days(15)  # Add ~2 weeks padding
+} else {
+  plot_start_range <- date_range_start - days(30)  # Add 1 month padding for year view
+  plot_end_range <- date_range_end + days(30)  # Add 1 month padding
+}
+  
+  # Determine tick settings based on time period
+  if(input$timePeriod == "week") {
+    tick_format <- "%b %d, %Y"
+    dtick_val <- "M1"  # Monthly ticks for weekly data
+  } else if(input$timePeriod == "month") {
+    tick_format <- "%b %Y"
+    dtick_val <- "M1"  # Quarterly ticks for monthly data
+  } else if(input$timePeriod == "quarter") {
+    tick_format <- "Q%q %Y"
+    dtick_val <- "M3"  # Quarterly ticks
+  } else {
+    tick_format <- "%Y"
+    dtick_val <- "M12"  # Yearly ticks for yearly data
+  }
+
+  gg_case_dispo_divs <- ggplot(case_dispo_divs,
+                          aes(x = period, y = total_dispositions, group = Division, color = Division,
+                              text = paste0("Period: ", period_text, "\n",
+                                            "Division: ", Division, "\n",
+                                            "Dispositions: ", total_dispositions)
+                              )) +
+    #gghighlight(Division == "1C01 (Wong)") +
+    geom_line() +
+    geom_point() +
+    labs(x = paste(tools::toTitleCase(input$timePeriod), "Period"),
+         y = "Total Dispositions",
+         color = "Judge") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+    NULL
+  
+p_dispo <- ggplotly(gg_case_dispo_divs, tooltip = "text", dynamicTicks = TRUE) %>% 
+    layout(
+      xaxis = list(
+        type = 'date',
+        autorange = FALSE,
+        tickmode = 'linear',
+        tick0 = date_range_start,
+        dtick = dtick_val,
+        tickformat = tick_format,
+        rangeselector = list(
+          buttons = list(
+            list(count = 3, label = "3m", step = "month", stepmode = "backward"),
+            list(count = 6, label = "6m", step = "month", stepmode = "backward"),
+            list(count = 1, label = "1y", step = "year", stepmode = "backward"),
+            list(count = 2, label = "2y", step = "year", stepmode = "backward"),
+            list(step = "all")
+          )
+        )
+      )
+    ) %>%
+    rangeslider(type = 'date', start = plot_start_range, end = plot_end_range, thickness = 0.1) %>%
+    config(modeBarButtonsToRemove = c('hoverClosestCartesian','hoverCompareCartesian'), displaylogo = FALSE)
+
+# Find trace indices by name (subtract 1 for zero-based indexing)
+hide_names <- c("1C03 (Ho)", "1C13 (Viola)", "1C22 (Park)")
+hide_indices <- which(sapply(p_dispo$x$data, function(trace) trace$name %in% hide_names))
+
+p_dispo %>% 
+  style(visible = "legendonly", traces = hide_indices)
+  
+  })
+
+
+```
+
+## Dispositions Trends By Division
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(plotly)
+
+plotOutput("facet_divisions", height = 1200) 
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(plotly)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_stats_1C_trial_week_ to dispo_case_stats_1C_trial_week_)
+csv_dispo_list <- list.files("WeeklyData/", pattern = "^dispo_charge_stats_1C_trial_week_.*csv$")
+csv_dispo_list <- csv_dispo_list[-length(csv_dispo_list)]
+
+  case_dispo_list <- lapply(paste0("WeeklyData/", csv_dispo_list), read.csv)
+  # h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+  case_dispo_df <- bind_rows(setNames(case_dispo_list, basename(csv_dispo_list)), .id = "id") #bind_rows(case_dispo_list)
+  
+  case_dispo_division_df2 <- case_dispo_df %>% 
+    mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+           cyear = format(trial_week, "%Y"),
+           Division = if_else(Division == "-", "All Divisions", Division),
+           Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                             labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions")),
+           JRT = ACQJ + GLTJ,
+           JWT = GLTW + ACQJ + AQRI,
+           trials = JRT + JWT) %>% 
+    group_by(Division, cyear) %>% 
+    mutate(cumulative_dispo = cumsum(Total),
+           cumulative_trials = cumsum(trials),
+           cumulative_JRT = cumsum(JRT),
+           cumulative_JWT = cumsum(JWT)) %>% 
+    ungroup()
+  
+  #df by month
+    case_dispo_division_month <- case_dispo_division_df2 %>%
+      mutate(period = floor_date(trial_week, "month")) %>%
+      group_by(period, Division) %>%
+      summarize(total_dispositions = sum(Disposed), .groups = "drop")
+  
+    #monthly facet graph
+    # case_dispo_division_month %>% filter(Division != "All Divisions") %>% ggplot(aes(x = period, y = total_dispositions, group = Division, color = Division)) + 
+    # geom_col(aes(fill = Division)) + 
+    # facet_wrap(vars(class = Division)) +
+    # labs(x = NULL) +
+    # theme_bw() +
+    # theme(strip.text.x = element_text(size = 25, face = "bold"), 
+    #       legend.position="none",
+    #       axis.text.x.bottom = element_text(size = 18),
+    #       axis.text.y.left = element_text(size = 18),
+    #       axis.title.y = element_text(size = 25, face = "bold")
+    #       ) + 
+    #   scale_x_date(breaks = "1 month", date_labels = "%b")
+    
+  output$facet_divisions <- renderPlot({
+  case_dispo_division_df2 %>% filter(Division != "All Divisions") %>% ggplot(aes(x = trial_week, y = Disposed, group = Division, color = Division)) + 
+    geom_col(aes(fill = Division)) + 
+    facet_wrap(vars(class = Division)) +
+    labs(x = NULL) +
+    theme_bw() +
+    theme(strip.text.x = element_text(size = 25, face = "bold"), 
+          legend.position="none",
+          axis.text.x.bottom = element_text(size = 18),
+          axis.text.y.left = element_text(size = 18),
+          axis.title.y = element_text(size = 25, face = "bold")
+          ) + 
+      scale_x_date(breaks = "1 month", date_labels = "%b")
+    } 
+  ) 
+```
+
+## `r title` Disposition Trends in First Circuit in Aggregate
+
+This graph shows the number of dispositions across all divisions over time. The blue lines show the cumulative counts and the black lines show the weekly counts.
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-height: 6
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(gghighlight)
+library(tidyr)
+library(ggtext)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_stats_1C_trial_week_ to dispo_case_stats_1C_trial_week_)
+csv_dispo_list <- list.files("WeeklyData/", pattern = "^dispo_charge_stats_1C_trial_week_.*csv$")
+csv_dispo_list <- csv_dispo_list[-length(csv_dispo_list)]
+
+case_dispo_list <- lapply(paste0("WeeklyData/", csv_dispo_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+charge_dispo_df <- bind_rows(setNames(case_dispo_list, basename(csv_dispo_list)), .id = "id") #bind_rows(case_dispo_list)
+
+charge_dispo_aggregate_df <- charge_dispo_df %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions")),
+         JRT = ACQJ + GLTJ,
+         JWT = GLTW + ACQJ + AQRI,
+         trials = JRT + JWT) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(`Total Dispositions` = cumsum(Total),
+         `Total Disposed` = cumsum(Disposed), 
+         `Total Awaiting` = cumsum(Awaiting),
+         #cumulative_trials = cumsum(trials),
+         #cumulative_JRT = cumsum(JRT),
+         #cumulative_JWT = cumsum(JWT)
+         ) %>% 
+  rename(`Weekly Disposed` = Disposed) %>% 
+  ungroup()
+
+charge_dispo_aggregate_df_long <- charge_dispo_aggregate_df %>% 
+  pivot_longer(
+    cols = c(`Weekly Disposed`, `Total Dispositions`:`Total Awaiting`), 
+    names_to = "Type", 
+    values_to = "Dispositions")
+
+charge_dispo_aggregate_df_long$Type <- factor(charge_dispo_aggregate_df_long$Type, levels = c("Total Dispositions", "Total Disposed", "Total Awaiting", "Weekly Disposed"))
+
+cumulative_dispositions_aggregate_line <- subset(charge_dispo_aggregate_df_long, Type != "Weekly Disposed") %>% filter(Division == "All Divisions")
+weekly_dispositions_aggregate_bar <- subset(charge_dispo_aggregate_df_long, Type == "Weekly Disposed") %>% filter(Division == "All Divisions")
+
+#Graph 2: Weekly and Cumulative Dispos
+gg_dispo_all <- ggplot(cumulative_dispositions_aggregate_line %>% filter(Division == "All Divisions"),
+                       aes(x = trial_week, y = Dispositions, group = Type, colour = Type,
+                           text = paste0("week: ",trial_week,"\n",
+                                         "Weekly Dispositions: ", Total, "\n",
+                                         "cumulative # of dispositions:",
+                                         Dispositions, "\n",
+                                         "division: ", Division, "\n",
+                                         "year: ", cyear))) +
+geom_col(data = weekly_dispositions_aggregate_bar,fill = "#FFFFFF", aes(x = trial_week, y = Dispositions, group = Type,                             text = paste0("week: ",trial_week,"\n",
+                                         "Weekly Dispositions: ", Total, "\n",
+                                         "division: ", Division, "\n",
+                                         "year: ", cyear))) +
+  scale_color_manual(values=c("#000000", "#0000FF", "#00FF00", "#FF0000")) +
+  geom_point() +
+  geom_line() +
+    #ISSUE: the x-axis was showing an extra label on each end of plot, tried a few methods to fix this:
+  # scale_x_date("Week", date_breaks = "1 week") +
+  # scale_x_date(date_breaks = "1 week", date_labels = "%m-%d-%y") +
+  scale_x_date(breaks = seq(as.Date("2024-01-01"), max(charge_dispo_aggregate_df$trial_week), by = 7), date_labels = "%m-%d-%y") +
+  scale_y_continuous(limits = c(0,NA)) +
+  # scale_y_continuous("Total Pending Trials") +
+  # scale_color_discrete("Divisions") +
+  labs(title = "Weekly and Cumulative Dispos (All Divisions)",
+       x = "Date",
+       y = "Number of dispositions",
+       color = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 30)) #+
+#NULL
+
+ggplotly(gg_dispo_all, tooltip = "text", dynamicTicks = TRUE) %>%
+      # hide_legend() %>%
+      layout(
+        #moved title and subtitle to the shinydashboard box b/c it didn't format nicely with selectorbuttons, especially on smaller screens
+        title = list(text=paste0('Weekly and Cumulative Dispos (All Divisions)')
+                     # xanchor = 'left', #reposition title
+                     # yanchor =  'top'  #reposition title
+                     ),
+        margin = list(t = 90),
+        xaxis = list(type = 'date',
+                     autorange = FALSE,
+                     # range = as.Date(c(plotStartRange,plotEndRange)),
+                     rangeselector = list(
+                       buttons = list(
+                          list(count=3, label="3m", step="month", stepmode="backward"),
+                         list(count=6, label="6m", step="month", stepmode="backward"),
+                         list(count=1, label="YTD", step="year", stepmode="todate"),
+                         list(count=1, label="1y", step="year", stepmode="backward"),
+                         list(count=2, label="2y", step="year", stepmode="backward"),
+                         list(step="all")
+                       )
+                     ),
+                     tickmode = 'linear',  
+                     tick0 = plotStartRange,
+                     dtick = 'M1',
+                     tickformat = '%b %Y')             
+                     ) %>%
+      # rangeslider(type = 'date', start = min(case_dispo_df2$trial_week) - 7, end = max(case_dispo_df2$trial_week) + 7, thickness = .1) %>% # use +/- 7 to add some padding to left and right side of plot and rangeslider
+  rangeslider(type = 'date', start = plotStartRange, end = plotEndRange, thickness = .1) %>%
+  config(modeBarButtonsToRemove = c('hoverClosestCartesian','hoverCompareCartesian'), displaylogo = FALSE)
+
+```
+
+## `r title` Disposition Trends in First Circuit by Division
+
+This graph shows the number of divisions by each division. Use the dropdown to select a specific division.
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(gghighlight)
+library(ggtext)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_stats_1C_trial_week_ to dispo_case_stats_1C_trial_week_)
+csv_dispo_list <- list.files("WeeklyData/", pattern = "^dispo_charge_stats_1C_trial_week_.*csv$")
+csv_dispo_list <- csv_dispo_list[-length(csv_dispo_list)]
+
+charge_dispo_list <- lapply(paste0("WeeklyData/", csv_dispo_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+charge_dispo_df <- bind_rows(setNames(charge_dispo_list, basename(csv_dispo_list)), .id = "id") #bind_rows(case_dispo_list)
+
+charge_dispo_division <- charge_dispo_df %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)",  "1C23 (Somerville)", "All Divisions")),
+         JRT = ACQJ + GLTJ,
+         JWT = GLTW + ACQJ + AQRI,
+         trials = JRT + JWT) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(`Weekly Disposed` = Disposed,
+         `Total Dispositions` = cumsum(Total),
+         `Total Disposed` = cumsum(Disposed),
+         `Total Awaiting` = cumsum(Awaiting),
+         cumulative_JRT = cumsum(JRT),
+         cumulative_JWT = cumsum(JWT),
+         cumulative_trials = cumsum(trials)) %>%   
+  ungroup()
+
+charge_dispo_division_long <- charge_dispo_division %>% pivot_longer(cols = c(`Weekly Disposed`, `Total Dispositions`:`Total Awaiting`), values_to = "Dispositions")
+
+choicesCaseDispoSelect <- charge_dispo_division_long %>% 
+  select(Division) %>% 
+  distinct() %>% 
+  filter(Division != "All Divisions") %>% 
+  arrange(Division) %>% 
+  pull()
+
+selectizeInput(inputId = "caseDispoSelect",
+               label = "Select Division:",
+               choices = choicesCaseDispoSelect,
+               selected = choicesCaseDispoSelect[1],
+               multiple = FALSE
+               )
+
+plotlyOutput("gg_dispo_divs", height = 600)
+
+#plotlyOutput("gg_trial_divs", height = 600)
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(tidyr)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_stats_1C_trial_week_ to dispo_case_stats_1C_trial_week_)
+csv_dispo_list <- list.files("WeeklyData/", pattern = "^dispo_charge_stats_1C_trial_week_.*csv$")
+csv_dispo_list <- csv_dispo_list[-length(csv_dispo_list)]
+
+charge_dispo_list <- lapply(paste0("WeeklyData/", csv_dispo_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+charge_dispo_df <- bind_rows(setNames(charge_dispo_list, basename(csv_dispo_list)), .id = "id") #bind_rows(case_dispo_list)
+
+charge_dispo_division <- charge_dispo_df %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)",  "1C23 (Somerville)", "All Divisions")),
+         JRT = ACQJ + GLTJ,
+         JWT = GLTW + ACQJ + AQRI,
+         trials = JRT + JWT) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(`Weekly Disposed` = Disposed,
+         `Total Dispositions` = cumsum(Total),
+         `Total Disposed` = cumsum(Disposed),
+         `Total Awaiting` = cumsum(Awaiting)) %>%
+         #cumulative_JRT = cumsum(JRT),
+         #cumulative_JWT = cumsum(JWT))  
+  ungroup()
+
+charge_dispo_division_long <- charge_dispo_division %>% pivot_longer(cols = c(`Weekly Disposed`, `Total Dispositions`:`Total Awaiting`), values_to = "Dispositions", names_to = "Type")
+
+charge_dispo_division_long$Type <- factor(charge_dispo_division_long$Type, levels = c("Total Dispositions", "Total Disposed", "Total Awaiting", "Weekly Disposed"))
+
+charge_dispo_division_line <- subset(charge_dispo_division_long, Type != "Weekly Disposed") %>% filter(Division != "All Divisions")
+charge_dispo_division_bar <- subset(charge_dispo_division_long, Type == "Weekly Disposed") %>% filter(Division != "All Divisions")
+
+  charge_dispo_df2 <- reactive({charge_dispo_division_line %>% 
+    group_by(Division, cyear) %>% 
+    mutate(cumulative_dispo = cumsum(Total),
+           cumulative_trials = cumsum(trials)) %>% 
+    ungroup() %>%
+    filter(Division %in% input$caseDispoSelect)
+})
+
+    charge_dispo_bar <- reactive({charge_dispo_division_bar %>% 
+    group_by(Division, cyear) %>% 
+    mutate(cumulative_dispo = cumsum(Total),
+           cumulative_trials = cumsum(trials)) %>% 
+    ungroup() %>%
+    filter(Division %in% input$caseDispoSelect)
+})
+  
+yaxis_lims <- charge_dispo_df %>% 
+    mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+           Division = if_else(Division == "-", "All Divisions", Division),
+           Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                             labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions")),
+         JRT = ACQJ + GLTJ,
+         JWT = GLTW + ACQJ + AQRI,
+         trials = JRT + JWT) %>% 
+    filter(Division != "All Divisions") %>%
+    group_by(Judge) %>% 
+    summarize(total_dispos = sum(Total),
+           total_trials = sum(trials)) %>% 
+    ungroup() %>%
+  filter(Judge != "Total")
+
+ymax_dispos <- max(yaxis_lims$total_dispos) + 1
+ymax_trials <- max(yaxis_lims$total_trials) + 1
+  
+output$gg_dispo_divs <- renderPlotly({
+  
+  gg_dispo_divs <- ggplot(charge_dispo_df2(),
+                          aes(x = trial_week, y = Dispositions, group = Type, colour = Type,
+                              text = paste0("week: ",trial_week,"\n",
+                                             "Weekly dispositions: ", Total, "\n",
+                                            "cumulative # of dispositions:", Dispositions, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+    geom_col(charge_dispo_bar(), 
+             fill = "#FFFFFF", 
+             mapping = aes(x = trial_week, y = Dispositions, group = Type, 
+                           text = paste0("week: ",trial_week,"\n",
+                                             "Weekly dispositions: ", Total, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+    geom_point() +
+    geom_line() +
+  scale_color_manual(values=c("#000000", "#0000FF", "#00FF00", "#FF0000")) +
+    scale_x_date(breaks = seq(as.Date("2024-01-01"), max(charge_dispo_df2()$trial_week), by = 7), date_labels = "%m-%d-%y") +
+    scale_y_continuous(limits = c(0, ymax_dispos)) +
+    labs(title = paste0("Weekly and Cumulative Dispos in ", input$caseDispoSelect),
+         x = NULL,
+         y = "Number of dispositions",
+         color = "Divisions") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 30)) + 
+    NULL
+  
+ggplotly(gg_dispo_divs,tooltip = "text", dynamicTicks = TRUE) %>%
+      # hide_legend() %>%
+      layout(
+        margin = list(t = 90),
+        xaxis = list(type = 'date',
+                     autorange = FALSE,
+                     # range = as.Date(c(plotStartRange,plotEndRange)),
+                     rangeselector = list(
+                       buttons = list(
+                         list(count=3, label="3m", step="month", stepmode="backward"),
+                         list(count=6, label="6m", step="month", stepmode="backward"),
+                         list(count=1, label="YTD", step="year", stepmode="todate"),
+                         list(count=1, label="1y", step="year", stepmode="backward"),
+                         list(count=2, label="2y", step="year", stepmode="backward"),
+                         list(step="all")
+                       )
+                     ),
+                     tickmode = 'linear', 
+                     tick0 = plotStartRange,
+                     dtick = 'M1',
+                     tickformat = '%b %Y' #added this b/c tick labels formatted with ggplot were being cutoff by graph, this allows correct alignment and spacing
+                     ),   
+        #to customize both range and # of tick labels, use this instead of the above
+        #https://plotly.com/r/time-series/
+        #h/t: https://stackoverflow.com/questions/71823559/how-to-set-custom-date-ticks-breaks-in-plotly
+                  yaxis = list(autorange = FALSE)
+             ) %>%
+      rangeslider(type = 'date', start = plotStartRange, end = plotEndRange, thickness = .1) %>%
+  config(modeBarButtonsToRemove = c('hoverClosestCartesian','hoverCompareCartesian'), displaylogo = FALSE)
+
+})
+
+
+```
+
+# Trials (`r title` Level)
+
+## Weekly Trial Table
+
+The table below shows the number of trials across each criminal division in the First Circuit, Circuit Court. Use the drop down to look at historical weekly reports.
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+library(dplyr)
+library(stringr)
+library(shiny)
+library(htmltools)
+library(DT)
+
+csv_trial_list <- list.files("WeeklyData/", pattern = "^dispo_charge_trial_stats_1C_trial_week_.*csv$")
+run_dates_trial <- str_extract(csv_trial_list, "[0-9]{4}-[0-9]{2}-[0-9]{2}")
+run_dates_aggregate <- str_extract(csv_trial_list, "Aggregate")
+run_dates_trial <- append(run_dates_trial,run_dates_aggregate)
+run_dates_trial <- run_dates_trial[!is.na(run_dates_trial)]
+# pending_trial_list <- lapply(paste0("../pending_trials/", csv_list), read.csv)
+
+selectizeInput(inputId = "selectWeekDispo_Trial",
+               label = "Select a report:",
+               choices = rev(run_dates_trial),
+               selected = TRUE)
+
+tableOutput("trial_table")
+
+#attempt to add download button using just shiny widgets to save table displayed with Kable
+# downloadButton(outputId = "saveCSV", label = "CSV")
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+library(dplyr)
+library(kableExtra)
+library(DT)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_trial_stats_1C_trial_week_ to dispo_case_trial_stats_1C_trial_week_)
+weekly_trial_table <- reactive({
+    csv_selected <- list.files("WeeklyData/", pattern = paste0("^dispo_charge_trial_stats_1C_trial_week_", input$selectWeekDispo_Trial,".*?csv$"))
+  dispo_trial_table_full <- read.csv(file = paste0("WeeklyData/", csv_selected))
+  
+  })
+
+  output$trial_table <- function(){
+      weekly_trial_table() %>% 
+      rename(`Jury Trials` = JuryTrials, 
+             `Bench Trials` = BenchTrials) %>% 
+    kable() %>% 
+      kable_styling("striped","hover", font_size = 14)
+    }
+
+# output$trial_table <- renderDT(
+#   weekly_trial_table(), 
+#   rownames = F,
+#   # colnames = c("Trial week", "1C01 (Wong)", "1C02 (Remigio)", "1C11 (Souza)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C23 (Somerville)", "Total"),
+#     # colnames = c("Judge\n","Division","JRT","JWT","COP","DSM","DWO","DPJ","NPQ","RMD","MISC","Total"),
+#     extensions = c("Buttons", "FixedColumns"),
+#     options = list(
+#       pageLength = 15,
+#       # lengthMenu = c(15, 25, 50),
+#       # scrollY = "600px", #this was creating some weird behavior in which the column heads of previous table were partially appearing
+#       scrollX = TRUE,
+#       #add buttons, and specifying dom
+#       #https://stackoverflow.com/questions/50039186/add-download-buttons-in-dtrenderdatatable
+#       #https://stackoverflow.com/questions/50043152/r-shiny-how-to-add-pagination-in-dtrenderdatatable
+#       # dom = 'Bfrtip',
+#       dom = 'tB',
+#       buttons = c('copy','csv','excel','pdf'),
+#       fixedColumns = list(leftColumns = 1)  # Freeze first column
+#       # h/t: customize font size of column heads: https://github.com/rstudio/DT/issues/783
+#       # headerCallback = DT::JS(
+#       #   "function(thead) {",
+#       #   "  $(thead).css('font-size', '14px');",
+#       #   "}"
+#       #   )
+#     )
+# )
+
+```
+
+## Trial Trends By Division
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(plotly)
+
+plotOutput("facet_trials", height = 1200) 
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_trial_stats_1C_trial_week_ to dispo_case_trial_stats_1C_trial_week_)
+csv_trial_list <- list.files("WeeklyData/", pattern = "^dispo_charge_trial_stats_1C_trial_week_.*csv$")
+csv_trial_list <- csv_trial_list[-length(csv_trial_list)]
+
+case_trial_list <- lapply(paste0("WeeklyData/", csv_trial_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+case_trial_df <- bind_rows(setNames(case_trial_list, basename(csv_trial_list)), .id = "id") #bind_rows(case_dispo_list)
+
+case_trial_division_df <- case_trial_df %>% 
+  rename(`Jury Trials` = JuryTrials,
+         `Bench Trials` = BenchTrials) %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)",  "1C23 (Somerville)", "All Divisions")),
+         `Weekly Trials` = `Jury Trials` + `Bench Trials`) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(`Total Trials` = cumsum(`Weekly Trials`),
+         `Jury Trials` = cumsum(`Jury Trials`),
+         `Bench Trials` = cumsum(`Bench Trials`)) %>% 
+  ungroup()
+  
+  #try by month
+    case_trial_division_month <- case_trial_division_df %>%
+      mutate(period = floor_date(trial_week, "month")) %>%
+      group_by(period, Division) %>%
+      summarize(total_dispositions = sum(`Weekly Trials`), .groups = "drop")
+  
+    case_trial_division_month %>% filter(Division != "All Divisions") %>% ggplot(aes(x = period, y = total_dispositions, group = Division, color = Division)) + 
+    geom_col(aes(fill = Division)) + 
+    facet_wrap(vars(class = Division)) +
+    labs(x = NULL) +
+    theme_bw() +
+    theme(strip.text.x = element_text(size = 25, face = "bold"), 
+          legend.position="none",
+          axis.text.x.bottom = element_text(size = 18),
+          axis.text.y.left = element_text(size = 18),
+          axis.title.y = element_text(size = 25, face = "bold")
+          ) + 
+      scale_x_date(breaks = "1 month", date_labels = "%b")
+
+  output$facet_trials <- renderPlot({
+  case_trial_division_df %>% filter(Division != "All Divisions") %>% ggplot(aes(x = trial_week, y = Total, group = Division, color = Division)) + 
+    geom_col(aes(fill = Division)) + 
+    facet_wrap(vars(class = Division)) +
+    labs(x = NULL) +
+    theme_bw() +   
+    theme(strip.text.x = element_text(size = 25, face = "bold"), 
+          legend.position="none",
+          axis.text.x.bottom = element_text(size = 18),
+          axis.text.y.left = element_text(size = 18),
+          axis.title.y = element_text(size = 25, face = "bold")
+          )  
+      } 
+  ) 
+```
+
+## Weekly and Cumulative Trials
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-height: 6
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(gghighlight)
+library(tidyr)
+library(ggtext)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_trial_stats_1C_trial_week_ to dispo_case_trial_stats_1C_trial_week_)
+csv_trial_list <- list.files("WeeklyData/", pattern = "^dispo_charge_trial_stats_1C_trial_week_.*csv$")
+csv_trial_list <- csv_trial_list[-length(csv_trial_list)]
+
+charge_trial_list <- lapply(paste0("WeeklyData/", csv_trial_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+charge_trial_df <- bind_rows(setNames(charge_trial_list, basename(csv_trial_list)), .id = "id") #bind_rows(case_dispo_list)
+
+case_trial_aggregate_df <- charge_trial_df %>% 
+  rename(`Jury Trials` = JuryTrials,
+         `Bench Trials` = BenchTrials) %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21", "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)",  "1C23 (Somerville)", "All Divisions")),
+         `Weekly Trials` = `Jury Trials` + `Bench Trials`) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(`Total Trials` = cumsum(`Weekly Trials`),
+         `Jury Trials` = cumsum(`Jury Trials`),
+         `Bench Trials` = cumsum(`Bench Trials`)) %>% 
+  ungroup()
+
+#Cumulative Trial Graph
+case_trial_aggregate_long <- case_trial_aggregate_df %>% pivot_longer(cols = c("Jury Trials", "Bench Trials", "Weekly Trials", "Total Trials"), names_to = "Type", values_to = "Trials") 
+case_trial_aggregate_long$Type <- factor(case_trial_aggregate_long$Type, levels = c("Total Trials", "Jury Trials", "Bench Trials", "Weekly Trials"))
+
+cumulative_trials_aggregate_line <- subset(case_trial_aggregate_long, Type != "Weekly Trials") %>% filter(Division == "All Divisions")
+weekly_trials_aggregate_bar <- subset(case_trial_aggregate_long, Type == "Weekly Trials") %>% filter(Division == "All Divisions")
+
+gg_trial <- ggplot(cumulative_trials_aggregate_line %>% filter(Division == "All Divisions"), 
+                   aes(x = trial_week, y = Trials, group = Type, colour = Type,
+                    text = paste0("week: ",trial_week,"\n",
+                    "# of trials: ", Trials, "\n",
+                    "division: ", Division, "\n",
+                    "year: ", cyear))) +
+   geom_col(data = weekly_trials_aggregate_bar,fill = "#FFFFFF", aes(x = trial_week, y = Trials, group =  Type)) +
+  scale_color_manual(values=c("#000000", "#0000FF", "#00FF00", "#FF0000")) +
+  geom_point() +
+  geom_line() +
+ 
+  scale_x_date(breaks = seq(as.Date("2024-01-01"), max(case_trial_aggregate_df$trial_week), by = 7), date_labels = "%m-%d-%y") +
+  scale_y_continuous(limits = c(0,NA)) +
+  labs(title = "Weekly and Cumulative Trials (All Divisions)",
+       x = NULL,
+       y = "Number of trials",
+       color = "Trial Type") +
+  theme_bw() +
+  theme(plot.subtitle = element_markdown(size = 11)) +
+  theme(axis.text.x = element_text(angle = 30)) +
+  theme(axis.title.y = element_text(size = 14)) +
+  theme(legend.text = element_text(size = 11)) +
+  NULL 
+  
+ggplotly(gg_trial, tooltip = "text", dynamicTicks = TRUE) %>%
+      layout(
+        title = list(text=paste0('Weekly and Cumulative Trials (All Divisions)')
+                     ),
+        margin = list(t = 90),
+        xaxis = list(type = 'date',
+                     autorange = FALSE,
+                     rangeselector = list(
+                       buttons = list(
+                         list(count=3, label="3m", step="month", stepmode="backward"),
+                         list(count=6, label="6m", step="month", stepmode="backward"),
+                         list(count=1, label="YTD", step="year", stepmode="todate"),
+                         list(count=1, label="1y", step="year", stepmode="backward"),
+                         list(count=2, label="2y", step="year", stepmode="backward"),
+                         list(step="all")
+                       )#,
+                       # x = 0.6,           #put rangeselector on right side
+                       # xanchor = "left"   #put rangeselector on right side
+                     ),
+                    
+                     tickmode = 'linear', 
+                     tick0 = plotStartRange,
+                     dtick = 'M1',
+                     tickformat = '%b %Y' 
+                     )
+             ) %>%
+       rangeslider(type = 'date', start = plotStartRange, end = plotEndRange, thickness = .1) %>%
+  config(modeBarButtonsToRemove = c('hoverClosestCartesian','hoverCompareCartesian'), displaylogo = FALSE)
+
+```
+
+## Weekly and Cumulative Trials By Division
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(gghighlight)
+library(ggtext)
+
+choicesCaseDispoSelect <- case_dispo_df2 %>% 
+  select(Division) %>% 
+  distinct() %>% 
+  filter(Division != "All Divisions") %>% 
+  arrange(Division) %>% 
+  pull()
+
+# selectizeInput(inputId = "caseDispoSelect",
+#                label = "Select Division:",
+#                choices = choicesCaseDispoSelect,
+#                selected = choicesCaseDispoSelect[1],
+#                multiple = TRUE
+#                )
+
+selectizeInput(inputId = "caseDispoSelect",
+               label = "Select Division:",
+               choices = choicesCaseDispoSelect,
+               selected = choicesCaseDispoSelect[1],
+               multiple = FALSE
+               )
+
+plotlyOutput("gg_trial_divs", height = 600)
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(tidyr)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_trial_stats_1C_trial_week_ to dispo_case_trial_stats_1C_trial_week_)
+csv_trial_list <- list.files("WeeklyData/", pattern = "^dispo_charge_trial_stats_1C_trial_week_.*csv$")
+csv_trial_list <- csv_trial_list[-length(csv_trial_list)]
+
+charge_trial_list <- lapply(paste0("WeeklyData/", csv_trial_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+charge_trial_df <- bind_rows(setNames(charge_trial_list, basename(csv_trial_list)), .id = "id") #bind_rows(case_dispo_list)
+
+charge_trials_division <- charge_trial_df %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)",  "1C23 (Somerville)", "All Divisions"))
+         ) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(`Weekly Trials` = Total,
+         `Total Jury Trials` = cumsum(JuryTrials),
+         `Total Bench Trials` = cumsum(BenchTrials),
+         `Total Trials` = cumsum(Total)) %>%   
+  ungroup()
+
+charge_trials_division_long <- charge_trials_division %>% pivot_longer(cols = c(`Weekly Trials`, `Total Jury Trials`:`Total Trials`), values_to = "Trials", names_to = "Type") 
+
+charge_trials_division_long$Type <- factor(charge_trials_division_long$Type, levels = c("Total Trials", "Total Jury Trials", "Total Bench Trials", "Weekly Trials"))
+
+charge_trials_division_line <- subset(charge_trials_division_long, Type != "Weekly Trials") %>% filter(Division != "All Divisions")
+charge_trials_division_bar <- subset(charge_trials_division_long, Type == "Weekly Trials") %>% filter(Division != "All Divisions")
+
+  charge_trials_df2 <- reactive({charge_trials_division_line %>% 
+    group_by(Division, cyear) %>% 
+    ungroup() %>%
+    filter(Division %in% input$caseDispoSelect)
+})
+
+    charge_trials_bar <- reactive({charge_trials_division_bar %>% 
+    group_by(Division, cyear) %>% 
+    ungroup() %>%
+    filter(Division %in% input$caseDispoSelect)
+})
+
+output$gg_trial_divs <- renderPlotly({
+  
+  gg_trial_divs <- ggplot(charge_trials_df2(),
+                          aes(x = trial_week, y = Trials, group = Type, colour = Type,
+                              text = paste0("week: ",trial_week,"\n",
+                                            "cumulative # of trials:", Trials, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+    geom_col(charge_trials_bar(), 
+             fill = "#FFFFFF", 
+             mapping = aes(x = trial_week, y = Trials, group = Type, 
+                           text = paste0("week: ",trial_week,"\n",
+                                             "Weekly Trials: ", Trials, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+    geom_point() +
+    geom_line() +
+  scale_color_manual(values=c("#000000", "#0000FF", "#00FF00", "#FF0000")) +
+    geom_point() +
+    geom_line() +
+    #ISSUE: the x-axis was showing an extra label on each end of plot, tried a few methods to fix this
+    # scale_x_date("Week", date_breaks = "1 week") +
+    # scale_x_date(date_breaks = "1 week", date_labels = "%m-%d-%y") +
+    scale_x_date(breaks = seq(as.Date("2024-01-01"), max(charge_trials_df2()$trial_week), by = 7), date_labels = "%m-%d-%y") +
+    #ISSUE: for judges with 0 or few trials, the y-axis has non-integer values, looks bad, use method 1 as a fix:
+    #method 0:
+    # scale_y_continuous(limits = c(0,NA)) +
+    #method 1:
+    scale_y_continuous(limits = c(0, ymax_trials)) +
+    #method 2:
+    # scale_y_continuous(breaks = seq(0, sum(case_dispo_df2()$Total) + 1, by = 5)) +
+    # scale_y_continuous("Total Pending Trials") +
+    # scale_color_discrete("Divisions") +
+    labs(title = paste0("Weekly and Cumulative Trials in ", input$caseDispoSelect),
+         x = NULL,
+         y = "Number of trials",
+         color = "Divisions") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 30)) +
+         NULL
+
+ggplotly(gg_trial_divs,tooltip = "text", dynamicTicks = TRUE) %>%
+      # hide_legend() %>%
+      layout(
+        #moved title and subtitle to the shinydashboard box b/c it didn't format nicely with selectorbuttons, especially on smaller screens
+        # title = list(text=paste0('Weekly and Cumulative Trials (All Divisions)')
+        #              # xanchor = 'left', #reposition title
+        #              # yanchor =  'top'  #reposition title
+        #              ),
+        margin = list(t = 90),
+        xaxis = list(type = 'date',
+                     autorange = FALSE,
+                     # range = as.Date(c(plotStartRange,plotEndRange)),
+                     rangeselector = list(
+                       buttons = list(
+                         list(count=3, label="3m", step="month", stepmode="backward"),
+                         list(count=6, label="6m", step="month", stepmode="backward"),
+                         list(count=1, label="YTD", step="year", stepmode="todate"),
+                         list(count=1, label="1y", step="year", stepmode="backward"),
+                         list(count=2, label="2y", step="year", stepmode="backward"),
+                         list(step="all")
+                       )#,
+                       # x = 0.6,           #put rangeselector on right side
+                       # xanchor = "left"   #put rangeselector on right side
+                     ),
+                     #for dates on x-axis, this worked: tickmode = linear and set both tick0/dtick
+                     #for % on y-axis, this worked: tickmode = array and set both tickvals/ticktext
+                     #h/t: https://stackoverflow.com/questions/68475195/dticks-and-plotly-how-to-control-what-is-shown-on-x-axes
+                     tickmode = 'linear', 
+                     tick0 = plotStartRange,
+                     dtick = 'M1',
+                     tickformat = '%b %Y' #added this b/c tick labels formatted with ggplot were being cutoff by graph, this allows correct alignment and spacing
+                     ),   
+        #to customize both range and # of tick labels, use this instead of the above
+        #https://plotly.com/r/time-series/
+        #h/t: https://stackoverflow.com/questions/71823559/how-to-set-custom-date-ticks-breaks-in-plotly
+        # yaxis = list(range = c(-0.05,1.05), #changed from 0,1 to -.05,1.05 to add small margin/padding at ends of graph
+        #              autorange = FALSE,
+        #              tickmode = 'array',
+        #              tickvals = seq(0,1,.1),
+        #              ticktext = paste0(seq(0,100,10),'%'))
+          yaxis = list(autorange = FALSE)
+             ) %>%
+
+      # rangeslider(type = 'date', start = min(case_dispo_df2()$trial_week) - 7, end = max(case_dispo_df2()$trial_week) + 7, thickness = .1) %>% # use +/- 7 to add some padding to left and right side of plot and rangeslider
+      rangeslider(type = 'date', start = plotStartRange, end = plotEndRange, thickness = .1) %>%
+  config(modeBarButtonsToRemove = c('hoverClosestCartesian','hoverCompareCartesian'), displaylogo = FALSE)
+
+})
+```
+
+# Deferrals (`r title` Level)
+
+## Weekly Deferral Table
+
+The table below shows the number of deferrals and their outcomes (successful, unsuccessful) across each criminal division in the First Circuit, Circuit Court. Use the drop down to look at historical weekly reports.
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+library(dplyr)
+library(stringr)
+library(shiny)
+library(htmltools)
+library(DT)
+library(ggtext)
+
+csv_deferral_list <- list.files("WeeklyData/", pattern = "^dispo_charge_deferral_stats_1C_trial_week_.*csv$")
+run_dates_deferral <- str_extract(csv_deferral_list, "[0-9]{4}-[0-9]{2}-[0-9]{2}")
+run_dates_aggregate <- str_extract(csv_deferral_list, "Aggregate")
+run_dates_deferral <- append(run_dates_deferral,run_dates_aggregate)
+run_dates_deferral <- run_dates_deferral[!is.na(run_dates_deferral)]
+
+selectizeInput(inputId = "selectWeekDispo_Deferral",
+               label = "Select a report:",
+               choices = rev(run_dates_deferral),
+               selected = TRUE)
+  
+DTOutput("deferral_table")
+
+#attempt to add download button using just shiny widgets to save table displayed with Kable
+# downloadButton(outputId = "saveCSV", label = "CSV")
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+library(dplyr)
+library(kableExtra)
+library(DT)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_deferral_stats_1C_trial_week_ to dispo_case_trial_stats_1C_trial_week_)
+
+weekly_deferral_table <- reactive({
+    csv_selected <- list.files("WeeklyData/", pattern = paste0("^dispo_charge_deferral_stats_1C_trial_week_", input$selectWeekDispo_Deferral,".*?csv$"))
+  dispo_trial_table_full <- read.csv(file = paste0("WeeklyData/", csv_selected))
+  })
+
+output$deferral_table <- renderDT(
+  weekly_deferral_table(), 
+  rownames = F,
+  # colnames = c("Trial week", "1C01 (Wong)", "1C02 (Remigio)", "1C03 (Ho)", "1C11 (Souza)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C22 (Park)", "1C23 (Somerville)", "Total"),
+    # colnames = c("Judge\n","Division","JRT","JWT","COP","DSM","DWO","DPJ","NPQ","RMD","MISC","Total"),
+    extensions = c("Buttons", "FixedColumns"),
+    options = list(
+      pageLength = 15,
+      # lengthMenu = c(15, 25, 50),
+      # scrollY = "600px", #this was creating some weird behavior in which the column heads of previous table were partially appearing
+      scrollX = TRUE,
+      #add buttons, and specifying dom
+      #https://stackoverflow.com/questions/50039186/add-download-buttons-in-dtrenderdatatable
+      #https://stackoverflow.com/questions/50043152/r-shiny-how-to-add-pagination-in-dtrenderdatatable
+      # dom = 'Bfrtip',
+      dom = 'tB',
+      buttons = c('copy','csv','excel','pdf'),
+      fixedColumns = list(leftColumns = 1)  # Freeze first column
+      # h/t: customize font size of column heads: https://github.com/rstudio/DT/issues/783
+      # headerCallback = DT::JS(
+      #   "function(thead) {",
+      #   "  $(thead).css('font-size', '14px');",
+      #   "}"
+      #   )
+    )
+)
+
+```
+
+## Deferral Trends By Division
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(plotly)
+
+plotOutput("facet_deferrals", height = 1200) 
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_deferral_stats_1C_trial_week_ to dispo_case_trial_stats_1C_trial_week_)
+csv_deferral_list <- list.files("WeeklyData/", pattern = "^dispo_charge_deferral_stats_1C_trial_week_.*csv$")
+csv_deferral_list <- csv_deferral_list[-length(csv_deferral_list)]
+
+case_deferral_list <- lapply(paste0("WeeklyData/", csv_deferral_list), read.csv)
+
+case_deferral_df <- bind_rows(setNames(case_deferral_list, basename(csv_deferral_list)), .id = "id") #bind_rows(case_dispo_list)
+  
+  case_deferral_division <- case_deferral_df %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions")),
+  `Weekly Deferrals` = Successful + Unsuccessful) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(
+         `Total Deferrals` = cumsum(Total),
+         `Successful Deferrals` = cumsum(Successful),
+         `Unsuccessful Deferrals` = cumsum(Unsuccessful)) %>% 
+  ungroup()
+  
+  #df by month
+    case_deferral_division_month <- case_deferral_division %>%
+      mutate(period = floor_date(trial_week, "month")) %>%
+      group_by(period, Division) %>%
+      summarize(total_dispositions = sum(`Weekly Deferrals`), .groups = "drop")
+  
+    #monthly facet graph
+     # case_deferral_division_month %>% filter(Division != "All Divisions") %>% ggplot(aes(x = period, y = total_dispositions, group = Division, color = Division)) + 
+     # geom_col(aes(fill = Division)) + 
+     # facet_wrap(vars(class = Division)) +
+     # labs(x = NULL) +
+     # theme_bw() +
+     # theme(strip.text.x = element_text(size = 25, face = "bold"), 
+     #       legend.position="none",
+     #       axis.text.x.bottom = element_text(size = 18),
+     #       axis.text.y.left = element_text(size = 18),
+     #       axis.title.y = element_text(size = 25, face = "bold")
+     #       ) + 
+     #   scale_x_date(breaks = "1 month", date_labels = "%b")
+     
+  output$facet_deferrals <- renderPlot({
+  
+    case_deferral_division %>% filter(Division != "All Divisions") %>% ggplot(aes(x = trial_week, y = Total, group = Division, color = Division)) + 
+    geom_col(aes(fill = Division)) + 
+    facet_wrap(vars(class = Division)) +
+    labs(x = NULL) +
+    theme_bw() +
+    theme(strip.text.x = element_text(size = 25, face = "bold"), 
+          legend.position="none",
+          axis.text.x.bottom = element_text(size = 18),
+          axis.text.y.left = element_text(size = 18),
+          axis.title.y = element_text(size = 25, face = "bold")
+          ) 
+    } 
+  ) 
+```
+
+## Weekly and Cumulative Deferrals
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(tidyr)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_deferral_stats_1C_trial_week_ to dispo_case_trial_stats_1C_trial_week_)
+csv_deferral_list <- list.files("WeeklyData/", pattern = "^dispo_charge_deferral_stats_1C_trial_week_.*csv$")
+csv_deferral_list <- csv_deferral_list[-length(csv_deferral_list)]
+
+charge_deferral_list <- lapply(paste0("WeeklyData/", csv_deferral_list), read.csv)
+charge_deferral_df <- bind_rows(setNames(charge_deferral_list, basename(csv_deferral_list)), .id = "id") #bind_rows(case_dispo_list)
+
+charge_deferral_aggregate <- charge_deferral_df %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2",  "6", "11", "13", "15", "17", "19", "20", "21", "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions")),
+  `Weekly Deferrals` = Successful + Unsuccessful) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(
+         `Total Deferrals` = cumsum(Total),
+         `Successful Deferrals` = cumsum(Successful),
+         `Unsuccessful Deferrals` = cumsum(Unsuccessful)) %>% 
+  ungroup()
+
+charge_deferral_aggregate_long <- charge_deferral_aggregate %>% pivot_longer(cols = c(`Weekly Deferrals`:`Unsuccessful Deferrals`), names_to = "Type", values_to = "Deferrals")
+
+charge_deferral_aggregate_long$Type <- factor(charge_deferral_aggregate_long$Type, levels = c("Total Deferrals", "Successful Deferrals", "Unsuccessful Deferrals", "Weekly Deferrals"))
+
+cumulative_deferrals_aggregate_line <- subset(charge_deferral_aggregate_long, Type != "Weekly Deferrals") %>% filter(Division == "All Divisions")
+weekly_deferrals_aggregate_bar <- subset(charge_deferral_aggregate_long, Type == "Weekly Deferrals") %>% filter(Division == "All Divisions")
+
+gg_deferral_all <- ggplot(cumulative_deferrals_aggregate_line %>% filter(Division == "All Divisions"),
+                          aes(x = trial_week, y = Deferrals, colour = Type, group = Type,
+                              text = paste0("week: ",trial_week,"\n",
+                                            "# of dispositions: ", Deferrals, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+   geom_col(data = weekly_deferrals_aggregate_bar,fill = "#FFFFFF", aes(x = trial_week, y = Deferrals, group =  Type)) +
+  geom_point() +
+  geom_line() +
+   scale_color_manual(values=c("#000000", "#0000FF", "#00FF00", "#FF0000")) + 
+  #ISSUE: the x-axis was showing an extra label on each end of plot, tried a few methods to fix this:
+  # scale_x_date("Week", date_breaks = "1 week") +
+  # scale_x_date(date_breaks = "1 week", date_labels = "%m-%d-%y") +
+  scale_x_date(breaks = seq(as.Date("2024-01-01"), max(charge_deferral_aggregate$trial_week), by = 7), date_labels = "%m-%d-%y") +
+  scale_y_continuous(limits = c(0,NA)) +
+  # scale_y_continuous("Total Pending Trials") +
+  # scale_color_discrete("Divisions") +
+  labs(title = "Weekly and Cumulative Deferrals and Outcomes (All Divisions)",
+       x = NULL,
+       y = "Number of dispositions",
+       color = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 30)) +
+  NULL
+
+ggplotly(gg_deferral_all, tooltip = "text", dynamicTicks = TRUE) %>%
+      # hide_legend() %>%
+      layout(
+        #moved title and subtitle to the shinydashboard box b/c it didn't format nicely with selectorbuttons, especially on smaller screens
+        title = list(text=paste0('Weekly and Cumulative Dispos (All Divisions)')
+                     # xanchor = 'left', #reposition title
+                     # yanchor =  'top'  #reposition title
+                     ),
+        margin = list(t = 90),
+        xaxis = list(type = 'date',
+                     autorange = FALSE,
+                     # range = as.Date(c(plotStartRange,plotEndRange)),
+                     rangeselector = list(
+                       buttons = list(
+                          list(count=3, label="3m", step="month", stepmode="backward"),
+                         list(count=6, label="6m", step="month", stepmode="backward"),
+                         list(count=1, label="YTD", step="year", stepmode="todate"),
+                         list(count=1, label="1y", step="year", stepmode="backward"),
+                         list(count=2, label="2y", step="year", stepmode="backward"),
+                         list(step="all")
+                       )#,
+                       # x = 0.6,           #put rangeselector on right side
+                       # xanchor = "left"   #put rangeselector on right side
+                     ),
+                     #for dates on x-axis, this worked: tickmode = linear and set both tick0/dtick
+                     #for % on y-axis, this worked: tickmode = array and set both tickvals/ticktext
+                     #h/t: https://stackoverflow.com/questions/68475195/dticks-and-plotly-how-to-control-what-is-shown-on-x-axes
+                     tickmode = 'linear', 
+                     tick0 = plotStartRange,
+                     dtick = 'M1',
+                     tickformat = '%b %Y' #added this b/c tick labels formatted with ggplot were being cutoff by graph, this allows correct alignment and spacing
+                     )#,   
+        #to customize both range and # of tick labels, use this instead of the above
+        #https://plotly.com/r/time-series/
+        #h/t: https://stackoverflow.com/questions/71823559/how-to-set-custom-date-ticks-breaks-in-plotly
+        # yaxis = list(range = c(-0.05,1.05), #changed from 0,1 to -.05,1.05 to add small margin/padding at ends of graph
+        #              autorange = FALSE,
+        #              tickmode = 'array',
+        #              tickvals = seq(0,1,.1),
+        #              ticktext = paste0(seq(0,100,10),'%'))
+             ) %>%
+      # rangeslider(type = 'date', start = min(case_dispo_df2$trial_week) - 7, end = max(case_dispo_df2$trial_week) + 7, thickness = .1) %>% # use +/- 7 to add some padding to left and right side of plot and rangeslider
+  rangeslider(type = 'date', start = plotStartRange, end = plotEndRange, thickness = .1) %>%
+  config(modeBarButtonsToRemove = c('hoverClosestCartesian','hoverCompareCartesian'), displaylogo = FALSE)
+
+```
+
+## Weekly and Cumulative Deferrals by Division
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(gghighlight)
+library(ggtext)
+
+choicesCaseDispoSelect <- case_dispo_df2 %>% 
+  select(Division) %>% 
+  distinct() %>% 
+  filter(Division != "All Divisions") %>% 
+  arrange(Division) %>% 
+  pull()
+
+# selectizeInput(inputId = "caseDispoSelect",
+#                label = "Select Division:",
+#                choices = choicesCaseDispoSelect,
+#                selected = choicesCaseDispoSelect[1],
+#                multiple = TRUE
+#                )
+
+selectizeInput(inputId = "caseDispoSelect",
+               label = "Select Division:",
+               choices = choicesCaseDispoSelect,
+               selected = choicesCaseDispoSelect[1],
+               multiple = FALSE
+               )
+
+plotlyOutput("gg_deferrals_divs", height = 600)
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(tidyr)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_deferral_stats_1C_trial_week_ to dispo_case_trial_stats_1C_trial_week_)
+csv_deferral_list <- list.files("WeeklyData/", pattern = "^dispo_charge_deferral_stats_1C_trial_week_.*csv$")
+csv_deferral_list <- csv_deferral_list[-length(csv_deferral_list)]
+
+charge_deferral_list <- lapply(paste0("WeeklyData/", csv_deferral_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+charge_deferral_df <- bind_rows(setNames(charge_deferral_list, basename(csv_deferral_list)), .id = "id") #bind_rows(case_dispo_list)
+
+charge_deferral_division <- charge_deferral_df %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)",  "1C23 (Somerville)", "All Divisions"))) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(`Weekly Deferrals` = Total,
+         `Total Successful` = cumsum(Successful),
+         `Total Unsuccessful` = cumsum(Unsuccessful),
+         `Total Deferrals` = cumsum(Total)) %>%   
+  ungroup()
+
+yaxis_lims_deferrals <- charge_deferral_df %>% 
+    mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+           Division = if_else(Division == "-", "All Divisions", Division),
+           Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                             labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions"))) %>% 
+    filter(Division != "All Divisions") %>%
+    group_by(Judge) %>% 
+    summarize(total_deferrals = sum(Total)) %>% 
+    ungroup() %>%
+  filter(Judge != "Total")
+
+ymax_deferrals <- max(yaxis_lims_deferrals$total_deferrals) + 1
+
+charge_deferrals_division_long <- charge_deferral_division %>% pivot_longer(cols = c(`Weekly Deferrals`, `Total Successful`:`Total Deferrals`), values_to = "Deferrals", names_to = "Type") 
+
+charge_deferrals_division_long$Type <- factor(charge_deferrals_division_long$Type, levels = c("Weekly Deferrals", "Total Deferrals", "Total Successful", "Total Unsuccessful"))
+
+charge_deferrals_division_line <- subset(charge_deferrals_division_long, Type != "Weekly Deferrals") %>% filter(Division != "All Divisions")
+charge_deferrals_division_bar <- subset(charge_deferrals_division_long, Type == "Weekly Deferrals") %>% filter(Division != "All Divisions")
+
+  charge_deferrals_df2 <- reactive({charge_deferrals_division_line %>% 
+    group_by(Division, cyear) %>% 
+    ungroup() %>%
+    filter(Division %in% input$caseDispoSelect)
+})
+
+    charge_deferrals_bar <- reactive({charge_deferrals_division_bar %>% 
+    group_by(Division, cyear) %>% 
+    ungroup() %>%
+    filter(Division %in% input$caseDispoSelect)
+})
+
+output$gg_deferrals_divs <- renderPlotly({
+  
+  gg_deferrals_divs <- ggplot(charge_deferrals_df2(),
+                          aes(x = trial_week, y = Deferrals, group = Type, colour = Type,
+                              text = paste0("week: ",trial_week,"\n",
+                                            "cumulative # of deferrals:", Deferrals, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+      geom_col(charge_deferrals_bar(), 
+             fill = "#FFFFFF", 
+             mapping = aes(x = trial_week, y = Deferrals, group = Type, 
+                           text = paste0("week: ",trial_week, "\n",
+                                             "Weekly Deferrals: ", Deferrals, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+    geom_point() +
+    geom_line() +
+scale_color_manual(values=c("#000000", "#0000FF", "#00FF00", "#FF0000")) +
+    #ISSUE: the x-axis was showing an extra label on each end of plot, tried a few methods to fix this
+    # scale_x_date("Week", date_breaks = "1 week") +
+    # scale_x_date(date_breaks = "1 week", date_labels = "%m-%d-%y") +
+    scale_x_date(breaks = seq(as.Date("2024-01-01"), max(charge_deferrals_df2()$trial_week), by = 7), date_labels = "%m-%d-%y") +
+    #ISSUE: for judges with 0 or few trials, the y-axis has non-integer values, looks bad, use method 1 as a fix:
+    #method 0:
+    # scale_y_continuous(limits = c(0,NA)) +
+    #method 1:
+    scale_y_continuous(limits = c(0, ymax_deferrals)) +
+    #method 2:
+    # scale_y_continuous(breaks = seq(0, sum(case_dispo_df2()$Total) + 1, by = 5)) +
+    # scale_y_continuous("Total Pending Trials") +
+    # scale_color_discrete("Divisions") +
+    labs(title = paste0("Weekly and Cumulative Deferrals in ", input$caseDispoSelect),
+         x = NULL,
+         y = "Number of Deferrals",
+         color = "Divisions") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 30)) +
+         NULL
+
+ggplotly(gg_deferrals_divs,tooltip = "text", dynamicTicks = TRUE) %>%
+      # hide_legend() %>%
+      layout(
+        #moved title and subtitle to the shinydashboard box b/c it didn't format nicely with selectorbuttons, especially on smaller screens
+        # title = list(text=paste0('Weekly and Cumulative Trials (All Divisions)')
+        #              # xanchor = 'left', #reposition title
+        #              # yanchor =  'top'  #reposition title
+        #              ),
+        margin = list(t = 90),
+        xaxis = list(type = 'date',
+                     autorange = FALSE,
+                     # range = as.Date(c(plotStartRange,plotEndRange)),
+                     rangeselector = list(
+                       buttons = list(
+                         list(count=3, label="3m", step="month", stepmode="backward"),
+                         list(count=6, label="6m", step="month", stepmode="backward"),
+                         list(count=1, label="YTD", step="year", stepmode="todate"),
+                         list(count=1, label="1y", step="year", stepmode="backward"),
+                         list(count=2, label="2y", step="year", stepmode="backward"),
+                         list(step="all")
+                       )#,
+                       # x = 0.6,           #put rangeselector on right side
+                       # xanchor = "left"   #put rangeselector on right side
+                     ),
+                     #for dates on x-axis, this worked: tickmode = linear and set both tick0/dtick
+                     #for % on y-axis, this worked: tickmode = array and set both tickvals/ticktext
+                     #h/t: https://stackoverflow.com/questions/68475195/dticks-and-plotly-how-to-control-what-is-shown-on-x-axes
+                     tickmode = 'linear', 
+                     tick0 = plotStartRange,
+                     dtick = 'M1',
+                     tickformat = '%b %Y' #added this b/c tick labels formatted with ggplot were being cutoff by graph, this allows correct alignment and spacing
+                     ),   
+        #to customize both range and # of tick labels, use this instead of the above
+        #https://plotly.com/r/time-series/
+        #h/t: https://stackoverflow.com/questions/71823559/how-to-set-custom-date-ticks-breaks-in-plotly
+        # yaxis = list(range = c(-0.05,1.05), #changed from 0,1 to -.05,1.05 to add small margin/padding at ends of graph
+        #              autorange = FALSE,
+        #              tickmode = 'array',
+        #              tickvals = seq(0,1,.1),
+        #              ticktext = paste0(seq(0,100,10),'%'))
+          yaxis = list(autorange = FALSE)
+             ) %>%
+
+      # rangeslider(type = 'date', start = min(case_dispo_df2()$trial_week) - 7, end = max(case_dispo_df2()$trial_week) + 7, thickness = .1) %>% # use +/- 7 to add some padding to left and right side of plot and rangeslider
+      rangeslider(type = 'date', start = plotStartRange, end = plotEndRange, thickness = .1) %>%
+  config(modeBarButtonsToRemove = c('hoverClosestCartesian','hoverCompareCartesian'), displaylogo = FALSE)
+
+})
+```
+
+# Probation Dispositions (`r title` Level)
+
+## Weekly Probation Table
+
+The table below shows the number of probation revocations and dismissals across each criminal division in the First Circuit, Circuit Court. Use the drop down to look at historical weekly reports.
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+library(dplyr)
+library(stringr)
+library(shiny)
+library(htmltools)
+library(DT)
+library(ggtext)
+
+
+csv_probation_list <- list.files("WeeklyData/", pattern = "^dispo_charge_probation_stats_1C_trial_week_.*csv$")
+run_dates_probation <- str_extract(csv_probation_list, "[0-9]{4}-[0-9]{2}-[0-9]{2}")
+run_dates_aggregate <- str_extract(csv_probation_list, "Aggregate")
+run_dates_probation <- append(run_dates_probation,run_dates_aggregate)
+run_dates_probation <- run_dates_probation[!is.na(run_dates_probation)]
+
+selectizeInput(inputId = "selectWeekDispo_Probation",
+               label = "Select a report:",
+               choices = rev(run_dates_probation),
+               selected = TRUE)
+
+DTOutput("probation_table")
+
+#attempt to add download button using just shiny widgets to save table displayed with Kable
+# downloadButton(outputId = "saveCSV", label = "CSV")
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+library(dplyr)
+library(kableExtra)
+library(DT)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_probation_stats_1C_trial_week_ to dispo_casee_probation_stats_1C_trial_week_)
+
+weekly_probation_table <- reactive({
+    csv_selected <- list.files("WeeklyData/", pattern = paste0("^dispo_charge_probation_stats_1C_trial_week_", input$selectWeekDispo_Probation,".*?csv$"))
+  dispo_trial_table_full <- read.csv(file = paste0("WeeklyData/", csv_selected))
+  dispo_trial_table_full %>% rename(
+    `First Revocation` = FirstRevocation,
+    `Second Revocation` = SecondRevocation,
+    `> 2 Revocations` = MoreThanTwo)
+  })
+
+output$probation_table <- renderDT(
+  weekly_probation_table(), 
+  rownames = F,
+  # colnames = c("Trial week", "1C01 (Wong)", "1C02 (Remigio)", "1C03 (Ho)", "1C11 (Souza)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C22 (Park)", "1C23 (Somerville)", "Total"),
+    # colnames = c("Judge\n","Division","JRT","JWT","COP","DSM","DWO","DPJ","NPQ","RMD","MISC","Total"),
+    extensions = c("Buttons", "FixedColumns"),
+    options = list(
+      pageLength = 15,
+      # lengthMenu = c(15, 25, 50),
+      # scrollY = "600px", #this was creating some weird behavior in which the column heads of previous table were partially appearing
+      scrollX = TRUE,
+      #add buttons, and specifying dom
+      #https://stackoverflow.com/questions/50039186/add-download-buttons-in-dtrenderdatatable
+      #https://stackoverflow.com/questions/50043152/r-shiny-how-to-add-pagination-in-dtrenderdatatable
+      # dom = 'Bfrtip',
+      dom = 'tB',
+      buttons = c('copy','csv','excel','pdf'),
+      fixedColumns = list(leftColumns = 1)  # Freeze first column
+      # h/t: customize font size of column heads: https://github.com/rstudio/DT/issues/783
+      # headerCallback = DT::JS(
+      #   "function(thead) {",
+      #   "  $(thead).css('font-size', '14px');",
+      #   "}"
+      #   )
+    )
+)
+
+```
+
+## Weekly and Cumulative Probation Dispositions
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_probation_stats_1C_trial_week_ to dispo_casee_probation_stats_1C_trial_week_)
+csv_charge_probation_list <- list.files("WeeklyData/", pattern = "^dispo_charge_probation_stats_1C_trial_week_.*csv$")
+csv_charge_probation_list <- csv_charge_probation_list[-length(csv_charge_probation_list)]
+
+charge_probation_list <- lapply(paste0("WeeklyData/", csv_charge_probation_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+charge_probation_df <- bind_rows(setNames(charge_probation_list, basename(csv_charge_probation_list)), .id = "id") #bind_rows(case_dispo_list)
+
+  charge_probation_cumulative <- charge_probation_df %>% 
+    mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+           cyear = format(trial_week, "%Y"),
+           Division = if_else(Division == "-", "All Divisions", Division),
+           Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                             labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions")),
+           `Weekly Probation Dispositions` = Revocations + Dismissals   
+    ) %>% 
+    group_by(Division, cyear) %>%   
+    mutate(`Total Dispositions` = cumsum(Total),
+           `Revocations` = cumsum(Revocations),
+           `Dismissals` = cumsum(Dismissals)) %>% 
+    ungroup()  
+  
+case_probation_aggregate_long <- charge_probation_cumulative %>% pivot_longer(cols = c(Revocations,`Weekly Probation Dispositions`,`Total Dispositions`), names_to = "Type", values_to = "Probation Dispositions")
+
+case_probation_aggregate_long$Type <- factor(case_probation_aggregate_long$Type, levels = c("Total Dispositions", "Revocations", "Weekly Probation Dispositions"))
+
+cumulative_probation_line <- subset(case_probation_aggregate_long, Type != "Weekly Probation Dispositions") %>% filter(Division == "All Divisions")
+weekly_probation_bar <- subset(case_probation_aggregate_long, Type == "Weekly Probation Dispositions") %>% filter(Division == "All Divisions")
+
+gg_probation_all <- ggplot(cumulative_probation_line %>% filter(Division == "All Divisions"),
+                          aes(x = trial_week, y = `Probation Dispositions`, colour = Type, group = Type,
+                              text = paste0("week: ",trial_week,"\n",
+                                            "# of dispositions: ", `Probation Dispositions`, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+  geom_point() +
+  geom_line() +
+  geom_col(data = weekly_probation_bar,fill = "#FFFFFF", aes(x = trial_week, y = `Probation Dispositions`, group =  Type)) +
+  scale_color_manual(values=c("#0000FF","#FF0000", "#000000")) +
+  scale_x_date(breaks = seq(as.Date("2024-01-01"), max(charge_probation_cumulative$trial_week), by = 7), date_labels = "%m-%d-%y") +
+  scale_y_continuous(limits = c(0,NA)) +
+  labs(title = "Weekly and Cumulative Probation Revocations/Dismissals (All Divisions)",
+       x = NULL,
+       y = "Number of dispositions",
+       color = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 30))+
+  NULL
+
+ggplotly(gg_probation_all, tooltip = "text", dynamicTicks = TRUE) %>%
+      layout(
+        title = list(text=paste0('Weekly and Cumulative Probation Dispos (All Divisions)')
+                     ),
+        margin = list(t = 90),
+        xaxis = list(type = 'date',
+                     autorange = FALSE,
+                     rangeselector = list(
+                       buttons = list(
+                          list(count=3, label="3m", step="month", stepmode="backward"),
+                         list(count=6, label="6m", step="month", stepmode="backward"),
+                         list(count=1, label="YTD", step="year", stepmode="todate"),
+                         list(count=1, label="1y", step="year", stepmode="backward"),
+                         list(count=2, label="2y", step="year", stepmode="backward"),
+                         list(step="all")
+                       )
+                     ),
+                     #for dates on x-axis, this worked: tickmode = linear and set both tick0/dtick
+                     #for % on y-axis, this worked: tickmode = array and set both tickvals/ticktext
+                     #h/t: https://stackoverflow.com/questions/68475195/dticks-and-plotly-how-to-control-what-is-shown-on-x-axes
+                     tickmode = 'linear', 
+                     tick0 = plotStartRange,
+                     dtick = 'M1',
+                     tickformat = '%b %Y' #added this b/c tick labels formatted with ggplot were being cutoff by graph, this allows correct alignment and spacing
+                     )#,   
+        #to customize both range and # of tick labels, use this instead of the above
+        #https://plotly.com/r/time-series/
+        #h/t: https://stackoverflow.com/questions/71823559/how-to-set-custom-date-ticks-breaks-in-plotly
+        # yaxis = list(range = c(-0.05,1.05), #changed from 0,1 to -.05,1.05 to add small margin/padding at ends of graph
+        #              autorange = FALSE,
+        #              tickmode = 'array',
+        #              tickvals = seq(0,1,.1),
+        #              ticktext = paste0(seq(0,100,10),'%'))
+             ) %>%
+      # rangeslider(type = 'date', start = min(case_dispo_df2$trial_week) - 7, end = max(case_dispo_df2$trial_week) + 7, thickness = .1) %>% # use +/- 7 to add some padding to left and right side of plot and rangeslider
+  rangeslider(type = 'date', start = plotStartRange, end = plotEndRange, thickness = .1) %>%
+  config(modeBarButtonsToRemove = c('hoverClosestCartesian','hoverCompareCartesian'), displaylogo = FALSE)
+
+```
+
+## Probation Trends By Division
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(plotly)
+
+plotOutput("facet_probation", height = 1200) 
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_probation_stats_1C_trial_week_ to dispo_casee_probation_stats_1C_trial_week_)
+csv_charge_probation_list <- list.files("WeeklyData/", pattern = "^dispo_charge_probation_stats_1C_trial_week_.*csv$")
+csv_charge_probation_list <- csv_charge_probation_list[-length(csv_charge_probation_list)]
+
+  charge_probation_list <- lapply(paste0("WeeklyData/", csv_charge_probation_list), read.csv)
+  
+  case_probation_df <- bind_rows(setNames(charge_probation_list, basename(csv_charge_probation_list)), .id = "id") #bind_rows(case_dispo_list)
+  
+  case_probation_division <- case_probation_df %>% 
+    mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+           cyear = format(trial_week, "%Y"),
+           Division = if_else(Division == "-", "All Divisions", Division),
+           Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                             labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)", "1C23 (Somerville)", "All Divisions")),
+           `Weekly Probation Dispositions` = Revocations + Dismissals   
+    ) %>% 
+    group_by(Division, cyear) %>%   
+    mutate(`Total Dispositions` = cumsum(Total),
+           `Revocations` = cumsum(Revocations),
+           `Dismissals` = cumsum(Dismissals)) %>% 
+    ungroup()  
+  
+   #df by month
+    case_probation_division_month <- case_probation_division %>%
+      mutate(period = floor_date(trial_week, "month")) %>%
+      group_by(period, Division) %>%
+      summarize(total_dispositions = sum(`Weekly Probation Dispositions`), .groups = "drop")
+  
+    #monthly facet graph
+     # case_deferral_division_month %>% filter(Division != "All Divisions") %>% ggplot(aes(x = period, y = total_dispositions, group = Division, color = Division)) + 
+     # geom_col(aes(fill = Division)) + 
+     # facet_wrap(vars(class = Division)) +
+     # labs(x = NULL) +
+     # theme_bw() +
+     # theme(strip.text.x = element_text(size = 25, face = "bold"), 
+     #       legend.position="none",
+     #       axis.text.x.bottom = element_text(size = 18),
+     #       axis.text.y.left = element_text(size = 18),
+     #       axis.title.y = element_text(size = 25, face = "bold")
+     #       ) + 
+     #   scale_x_date(breaks = "1 month", date_labels = "%b")
+     # 
+  
+  output$facet_probation <- renderPlot({
+  case_probation_division %>% filter(Division != "All Divisions") %>% ggplot(aes(x = trial_week, y = `Total Dispositions`, group = Division, color = Division)) +     
+    geom_col(aes(fill = Division)) + 
+    facet_wrap(vars(class = Division)) +
+    labs(x = NULL) +
+    theme_bw() +
+    theme(strip.text.x = element_text(size = 25, face = "bold"), 
+          legend.position="none",
+          axis.text.x.bottom = element_text(size = 18),
+          axis.text.y.left = element_text(size = 18),
+          axis.title.y = element_text(size = 25, face = "bold")
+          ) #+ 
+      #scale_y_continuous(limits = c(0,15))
+    } 
+  ) 
+```
+
+
+## Weekly Probation Trends by Division
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(gghighlight)
+library(ggtext)
+
+choicesCaseDispoSelect <- case_dispo_df2 %>% 
+  select(Division) %>% 
+  distinct() %>% 
+  filter(Division != "All Divisions") %>% 
+  arrange(Division) %>% 
+  pull()
+
+# selectizeInput(inputId = "caseDispoSelect",
+#                label = "Select Division:",
+#                choices = choicesCaseDispoSelect,
+#                selected = choicesCaseDispoSelect[1],
+#                multiple = TRUE
+#                )
+
+selectizeInput(inputId = "caseDispoSelect",
+               label = "Select Division:",
+               choices = choicesCaseDispoSelect,
+               selected = choicesCaseDispoSelect[1],
+               multiple = FALSE
+               )
+
+plotlyOutput("gg_probation_divs", height = 600)
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| context: server
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(tidyr)
+
+#ALERT: TOGGLE CHARGE TO CASE (dispo_charge_probation_stats_1C_trial_week_ to dispo_casee_probation_stats_1C_trial_week_)
+csv_charge_probation_list <- list.files("WeeklyData/", pattern = "^dispo_charge_probation_stats_1C_trial_week_.*csv$")
+csv_charge_probation_list <- csv_charge_probation_list[-length(csv_charge_probation_list)]
+
+charge_probation_list <- lapply(paste0("WeeklyData/", csv_charge_probation_list), read.csv)
+# h/t: https://stackoverflow.com/questions/75190497/add-filename-as-an-attribute-while-reading-multiple-csv-w-lapply-or-add-filena
+charge_probation_df <- bind_rows(setNames(charge_probation_list, basename(csv_charge_probation_list)), .id = "id") #bind_rows(case_dispo_list)
+
+charge_probation_division <- charge_probation_df %>% 
+  mutate(trial_week = as.Date(str_extract(id, "[0-9]{4}-[0-9]{2}-[0-9]{2}")),
+         cyear = format(trial_week, "%Y"),
+         Division = if_else(Division == "-", "All Divisions", Division),
+         Division = factor(Division, levels = c("1", "2", "6", "11", "13", "15", "17", "19", "20", "21",  "23", "All Divisions"),
+                           labels = c("1C01 (Wong)", "1C02 (Remigio)", "1C06 (Costa)", "1C11 (Souza)", "1C13 (Viola)", "1C15 (Malinao)", "1C17 (Johnson)", "1C19 (To'oto'o)", "1C20 (Morikawa)", "1C21 (Kawashima)",  "1C23 (Somerville)", "All Divisions"))) %>% 
+  group_by(Division, cyear) %>% 
+  mutate(`Weekly Probation Dispositions` = Total,
+         `Total Revocations` = cumsum(Revocations),
+         `Total Dismissals` = cumsum(Dismissals),
+         `Total Probation Dispositions` = cumsum(Total)) %>%   
+  ungroup()
+
+yaxis_lims_probation <- charge_probation_division %>% 
+    filter(Division != "All Divisions") %>%
+    group_by(Judge) %>% 
+    summarize(total_probation = sum(Total)) %>% 
+    ungroup() %>%
+  filter(Judge != "Total")
+
+ymax_probation <- max(yaxis_lims_probation$total_probation) + 1
+
+charge_probation_division_long <- charge_probation_division %>% pivot_longer(cols = c(`Weekly Probation Dispositions`, `Total Revocations`,`Total Probation Dispositions`), values_to = "Probation", names_to = "Type") 
+
+charge_probation_division_long$Type <- factor(charge_probation_division_long$Type, levels = c("Weekly Probation Dispositions", "Total Probation Dispositions", "Total Revocations"))
+
+charge_probation_division_line <- subset(charge_probation_division_long, Type != "Weekly Probation Dispositions") %>% filter(Division != "All Divisions")
+charge_probation_division_bar <- subset(charge_probation_division_long, Type == "Weekly Probation Dispositions") %>% filter(Division != "All Divisions")
+
+  charge_probation_df2 <- reactive({charge_probation_division_line %>% 
+    group_by(Division, cyear) %>% 
+    ungroup() %>%
+    filter(Division %in% input$caseDispoSelect)
+})
+
+    charge_probation_bar <- reactive({charge_probation_division_bar %>% 
+    group_by(Division, cyear) %>% 
+    ungroup() %>%
+    filter(Division %in% input$caseDispoSelect)
+})
+
+output$gg_probation_divs <- renderPlotly({
+  
+  gg_probation_divs <- ggplot(charge_probation_df2(),
+                          aes(x = trial_week, y = Probation, group = Type, colour = Type,
+                              text = paste0("week: ",trial_week,"\n",
+                                            "cumulative # of deferrals:", Probation, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+      geom_col(charge_probation_bar(), 
+             fill = "#FFFFFF", 
+             mapping = aes(x = trial_week, y = Probation, group = Type, 
+                           text = paste0("week: ",trial_week, "\n",
+                                             "Weekly Probation: ", Probation, "\n",
+                                            "division: ", Division, "\n",
+                                            "year: ", cyear))) +
+    geom_point() +
+    geom_line() +
+scale_color_manual(values=c("#000000","#0000FF",  "#FF0000")) +
+    #ISSUE: the x-axis was showing an extra label on each end of plot, tried a few methods to fix this
+    # scale_x_date("Week", date_breaks = "1 week") +
+    # scale_x_date(date_breaks = "1 week", date_labels = "%m-%d-%y") +
+    scale_x_date(breaks = seq(as.Date("2024-01-01"), max(charge_deferrals_df2()$trial_week), by = 7), date_labels = "%m-%d-%y") +
+    #ISSUE: for judges with 0 or few trials, the y-axis has non-integer values, looks bad, use method 1 as a fix:
+    #method 0:
+    # scale_y_continuous(limits = c(0,NA)) +
+    #method 1:
+    scale_y_continuous(limits = c(0, ymax_probation)) +
+    #method 2:
+    # scale_y_continuous(breaks = seq(0, sum(case_dispo_df2()$Total) + 1, by = 5)) +
+    # scale_y_continuous("Total Pending Trials") +
+    # scale_color_discrete("Divisions") +
+    labs(title = paste0("Weekly and Cumulative Deferrals in ", input$caseDispoSelect),
+         x = NULL,
+         y = "Number of Deferrals",
+         color = "Divisions") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 30)) +
+         NULL
+
+ggplotly(gg_probation_divs,tooltip = "text", dynamicTicks = TRUE) %>%
+      # hide_legend() %>%
+      layout(
+        #moved title and subtitle to the shinydashboard box b/c it didn't format nicely with selectorbuttons, especially on smaller screens
+        # title = list(text=paste0('Weekly and Cumulative Trials (All Divisions)')
+        #              # xanchor = 'left', #reposition title
+        #              # yanchor =  'top'  #reposition title
+        #              ),
+        margin = list(t = 90),
+        xaxis = list(type = 'date',
+                     autorange = FALSE,
+                     # range = as.Date(c(plotStartRange,plotEndRange)),
+                     rangeselector = list(
+                       buttons = list(
+                         list(count=3, label="3m", step="month", stepmode="backward"),
+                         list(count=6, label="6m", step="month", stepmode="backward"),
+                         list(count=1, label="YTD", step="year", stepmode="todate"),
+                         list(count=1, label="1y", step="year", stepmode="backward"),
+                         list(count=2, label="2y", step="year", stepmode="backward"),
+                         list(step="all")
+                       )#,
+                       # x = 0.6,           #put rangeselector on right side
+                       # xanchor = "left"   #put rangeselector on right side
+                     ),
+                     #for dates on x-axis, this worked: tickmode = linear and set both tick0/dtick
+                     #for % on y-axis, this worked: tickmode = array and set both tickvals/ticktext
+                     #h/t: https://stackoverflow.com/questions/68475195/dticks-and-plotly-how-to-control-what-is-shown-on-x-axes
+                     tickmode = 'linear', 
+                     tick0 = plotStartRange,
+                     dtick = 'M1',
+                     tickformat = '%b %Y' #added this b/c tick labels formatted with ggplot were being cutoff by graph, this allows correct alignment and spacing
+                     ),   
+        #to customize both range and # of tick labels, use this instead of the above
+        #https://plotly.com/r/time-series/
+        #h/t: https://stackoverflow.com/questions/71823559/how-to-set-custom-date-ticks-breaks-in-plotly
+        # yaxis = list(range = c(-0.05,1.05), #changed from 0,1 to -.05,1.05 to add small margin/padding at ends of graph
+        #              autorange = FALSE,
+        #              tickmode = 'array',
+        #              tickvals = seq(0,1,.1),
+        #              ticktext = paste0(seq(0,100,10),'%'))
+          yaxis = list(autorange = FALSE)
+             ) %>%
+
+      # rangeslider(type = 'date', start = min(case_dispo_df2()$trial_week) - 7, end = max(case_dispo_df2()$trial_week) + 7, thickness = .1) %>% # use +/- 7 to add some padding to left and right side of plot and rangeslider
+      rangeslider(type = 'date', start = plotStartRange, end = plotEndRange, thickness = .1) %>%
+  config(modeBarButtonsToRemove = c('hoverClosestCartesian','hoverCompareCartesian'), displaylogo = FALSE)
+
+})
+```
